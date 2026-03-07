@@ -1,0 +1,179 @@
+{
+  "id": "voipms-sms",
+  "name": "VoIP.ms SMS",
+  "description": "SMS channel plugin for voip.ms — inbound/outbound SMS with per-DID routing, access control, contact enrichment, and feature toggles.",
+  "version": "2.0.0",
+  "kind": "channel",
+  "configSchema": {
+    "type": "object",
+    "required": ["dbPath", "dids"],
+    "additionalProperties": false,
+    "properties": {
+      "dbPath": {
+        "type": "string",
+        "description": "Path to SQLite database file"
+      },
+      "webhookPort": {
+        "type": "number",
+        "default": 8089,
+        "description": "HTTP port for the inbound SMS webhook listener"
+      },
+      "apiUsername": {
+        "type": "string",
+        "description": "voip.ms API username (email). Falls back to VOIPMS_API_USERNAME env var."
+      },
+      "apiPassword": {
+        "type": "string",
+        "description": "voip.ms API password. Falls back to VOIPMS_API_PASSWORD env var."
+      },
+      "timezone": {
+        "type": "string",
+        "default": "America/New_York",
+        "description": "Timezone for timestamps in agent message bodies (IANA format)"
+      },
+      "dids": {
+        "type": "object",
+        "description": "Map of DID phone numbers to per-DID configuration objects",
+        "additionalProperties": {
+          "type": "object",
+          "required": ["agent"],
+          "properties": {
+            "label": {
+              "type": "string",
+              "description": "Human-readable label for this DID"
+            },
+            "agent": {
+              "type": "string",
+              "description": "Agent ID that handles this DID"
+            },
+            "inbound": {
+              "type": "boolean",
+              "default": true,
+              "description": "Accept inbound SMS on this DID"
+            },
+            "outbound": {
+              "type": "boolean",
+              "default": true,
+              "description": "Allow outbound SMS from this DID"
+            },
+            "features": {
+              "type": "object",
+              "properties": {
+                "smsThreadLogging": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Log messages to sms_threads table"
+                },
+                "languagePreferences": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Save/track language preferences"
+                },
+                "smsStitching": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Stitch multi-segment SMS via API"
+                },
+                "agentThreadAccess": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Agent can read SMS thread history"
+                },
+                "agentCanAddContacts": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Agent can add/update contacts via tool"
+                }
+              }
+            },
+            "accessControl": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": ["allow-all", "block-all", "whitelist", "blacklist"],
+                  "default": "allow-all",
+                  "description": "Access control mode for inbound SMS"
+                },
+                "list": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "default": [],
+                  "description": "Phone numbers for whitelist/blacklist mode"
+                }
+              }
+            },
+            "contactLookup": {
+              "oneOf": [
+                { "type": "null" },
+                {
+                  "type": "object",
+                  "required": ["table", "phoneColumn"],
+                  "properties": {
+                    "table": {
+                      "type": "string",
+                      "description": "Database table name for contact lookups"
+                    },
+                    "phoneColumn": {
+                      "type": "string",
+                      "description": "Column name containing phone numbers"
+                    },
+                    "phoneMatch": {
+                      "type": "string",
+                      "enum": ["exact", "like"],
+                      "default": "like",
+                      "description": "Phone matching strategy: 'exact' or 'like' (substring match)"
+                    },
+                    "selectColumns": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "description": "Columns to SELECT from the contact table"
+                    },
+                    "displayName": {
+                      "type": "string",
+                      "description": "Column to use as the contact display name"
+                    },
+                    "bodyFields": {
+                      "type": "object",
+                      "description": "Map of label → column name (or 'literal' in single quotes, or [col1,col2] array) for agent body metadata"
+                    },
+                    "languageColumn": {
+                      "type": "string",
+                      "description": "Column containing preferred language code"
+                    }
+                  }
+                }
+              ],
+              "description": "Contact enrichment lookup configuration, or null to skip"
+            },
+            "suppression": {
+              "type": "object",
+              "properties": {
+                "unknownContact": {
+                  "type": "string",
+                  "enum": ["allow", "suppress"],
+                  "default": "allow",
+                  "description": "What to do when contact is not found in DB"
+                },
+                "unknownContactAction": {
+                  "type": "string",
+                  "enum": ["silent", "log"],
+                  "default": "silent",
+                  "description": "If suppressed, whether to log the message"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "uiHints": {
+    "dbPath": { "label": "Database Path" },
+    "webhookPort": { "label": "Webhook Port" },
+    "apiUsername": { "label": "API Username" },
+    "apiPassword": { "label": "API Password" },
+    "timezone": { "label": "Timezone" },
+    "dids": { "label": "DID Configuration" }
+  }
+}
