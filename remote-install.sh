@@ -74,7 +74,7 @@ echo ""
 
 # ── Install or upgrade ────────────────────────────────────────────────────────
 if [ -d "$INSTALL_DIR/.git" ]; then
-  # Existing install — upgrade
+  # Existing git install — upgrade via pull
   step "Existing installation found at ${BOLD}${INSTALL_DIR}${NC}"
 
   cd "$INSTALL_DIR"
@@ -93,6 +93,25 @@ if [ -d "$INSTALL_DIR/.git" ]; then
   else
     info "Upgraded: v${CURRENT_VERSION} → v${NEW_VERSION}"
   fi
+elif [ -d "$INSTALL_DIR" ]; then
+  # Directory exists but is not a git repo — replace with fresh clone
+  CURRENT_VERSION="$(node -p "require('${INSTALL_DIR}/openclaw.plugin.json').version" 2>/dev/null || echo 'unknown')"
+  step "Existing non-git installation found (v${CURRENT_VERSION}) at ${BOLD}${INSTALL_DIR}${NC}"
+  step "Converting to git-managed install..."
+
+  BACKUP_DIR="${INSTALL_DIR}.bak.$(date +%s)"
+  mv "$INSTALL_DIR" "$BACKUP_DIR"
+  info "Backed up existing install to ${BOLD}${BACKUP_DIR}${NC}"
+
+  git clone --branch "$BRANCH" --depth 1 --quiet "$REPO" "$INSTALL_DIR"
+  cd "$INSTALL_DIR"
+
+  NEW_VERSION="$(node -p "require('./openclaw.plugin.json').version" 2>/dev/null || echo 'unknown')"
+  info "Upgraded: v${CURRENT_VERSION} → v${NEW_VERSION} (now git-managed)"
+
+  # Clean up backup on success
+  rm -rf "$BACKUP_DIR"
+  info "Removed backup"
 else
   # Fresh install
   step "Installing to ${BOLD}${INSTALL_DIR}${NC}"
