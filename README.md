@@ -1,6 +1,6 @@
 # VoIP.ms SMS
 
-**OpenClaw Channel Plugin** | v2.0.1 | SQLite
+**OpenClaw Channel Plugin** | v2.1.1 | SQLite
 
 SMS channel plugin for voip.ms with per-DID routing, access control, contact enrichment, SMS stitching, thread logging, language preference tracking, and feature toggles.
 
@@ -25,10 +25,11 @@ SMS channel plugin for voip.ms with per-DID routing, access control, contact enr
 
 ```
 voipms-sms/
-├── index.js              # Plugin entry (~890 lines): all SMS logic
+├── index.js              # Plugin entry: all SMS logic
 ├── openclaw.plugin.json  # Manifest & config schema
 ├── package.json          # sqlite3 dependency
-├── install.sh            # Interactive installer
+├── remote-install.sh     # curl-based remote installer/upgrader
+├── install.sh            # Interactive local installer
 ├── manage.sh             # Management CLI (40+ commands, TUI menu)
 └── TOOLS.md              # Agent tool documentation
 ```
@@ -37,12 +38,32 @@ voipms-sms/
 
 ## Installation
 
+### Remote Install (recommended)
+
 ```bash
-cd extensions/voipms-sms
+curl -fsSL https://raw.githubusercontent.com/DJTSmith18/openclaw-voipms-sms/main/remote-install.sh | bash
+```
+
+This clones the repo into `~/.openclaw/extensions/voipms-sms`, installs dependencies, and verifies the plugin. Run the same command again to upgrade to the latest version.
+
+Options:
+
+```bash
+# Custom install directory
+curl -fsSL ... | bash -s -- --dir /custom/path
+
+# Specific branch
+curl -fsSL ... | bash -s -- --branch develop
+```
+
+### Local Install
+
+```bash
+cd ~/.openclaw/extensions/voipms-sms
 bash install.sh
 ```
 
-The installer walks through:
+The interactive installer walks through:
 1. Prerequisites check (Node.js 18+, npm, sqlite3, jq)
 2. npm install
 3. SQLite database setup (WAL mode, foreign keys)
@@ -75,7 +96,8 @@ The installer walks through:
         "languagePreferences": true,
         "smsStitching": true,
         "agentThreadAccess": false,
-        "agentCanAddContacts": false
+        "agentCanAddContacts": false,
+        "includeLastMessage": false
       },
       "accessControl": {
         "mode": "allow-all",
@@ -122,11 +144,13 @@ The installer walks through:
 
 ```
 SMS from John Smith (5551234567)
-  Email: john@example.com
-  Role: customer
-  Current Date and Time: 03/07/2026 14:30
-  Message: Hello, I need help with...
+Email: john@example.com | Role: customer
+Current Date and Time: 03/07/2026 14:30
+Last message (Agent): Sure, I can help with that!
+Message: Hello, I need help with...
 ```
+
+The `Last message` line only appears when `includeLastMessage` is enabled and there is a previous message in the thread.
 
 ---
 
@@ -176,6 +200,7 @@ Uses INSERT OR REPLACE (upsert on phone number).
 | `smsStitching` | true | Reassemble multi-segment SMS via voip.ms API |
 | `agentThreadAccess` | false | Enable `sms_read_threads` tool for agent |
 | `agentCanAddContacts` | false | Enable `sms_add_contact` tool for agent |
+| `includeLastMessage` | false | Include previous message in inbound SMS context (requires `smsThreadLogging`) |
 
 ---
 
