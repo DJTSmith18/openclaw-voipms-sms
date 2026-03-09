@@ -68,6 +68,7 @@ module.exports = {
       cfg.features.smsStitching       = cfg.features.smsStitching !== false;
       cfg.features.agentThreadAccess  = cfg.features.agentThreadAccess === true;
       cfg.features.agentCanAddContacts = cfg.features.agentCanAddContacts === true;
+      cfg.features.includeLastMessage  = cfg.features.includeLastMessage === true;
 
       cfg.accessControl      = cfg.accessControl || {};
       cfg.accessControl.mode = cfg.accessControl.mode || 'allow-all';
@@ -250,6 +251,25 @@ module.exports = {
       } catch (e) { api.logger.warn('[voipms] language pref save error:', e.message); }
     }
 
+    // ── Fetch previous last message (for includeLastMessage feature) ─────────
+    async function fetchLastMessage(phone, did) {
+      const didCfg = DIDS[did];
+      if (!didCfg || !didCfg.features.includeLastMessage) return null;
+      if (!didCfg.features.smsThreadLogging) return null; // requires thread logging
+      try {
+        const row = await dbGet(
+          `SELECT direction, message, created_at FROM sms_threads
+           WHERE did = ? AND phone_number = ?
+           ORDER BY created_at DESC LIMIT 1`,
+          [did, phone]
+        );
+        return row || null;
+      } catch (e) {
+        api.logger.warn('[voipms] fetchLastMessage error:', e.message);
+        return null;
+      }
+    }
+
     // ── SMS stitching ─────────────────────────────────────────────────────────
     async function stitchSms(smsId, dateStr, fromPhone, did) {
       const didCfg = DIDS[did];
@@ -385,7 +405,7 @@ module.exports = {
     }
 
     // ── Build agent body (generic, config-driven) ─────────────────────────────
-    function buildAgentBody({ fromPhone, message, contact, didCfg }) {
+    function buildAgentBody({ fromPhone, message, contact, didCfg, lastMessage }) {
       const cl  = didCfg.contactLookup;
       const who = contact?.name || fromPhone;
 
@@ -439,16 +459,22 @@ module.exports = {
         lines.push(`Current Date and Time: ${new Date().toISOString()}`);
       }
 
+      // Previous message context (includeLastMessage feature)
+      if (lastMessage) {
+        const sender = lastMessage.direction === 'inbound' ? (contact?.name || fromPhone) : 'Agent';
+        lines.push(`Last message (${sender}): ${lastMessage.message}`);
+      }
+
       lines.push(`Message: ${message}`);
       return lines.join('\n');
     }
 
     // ── Inbound dispatch ──────────────────────────────────────────────────────
-    async function handleInbound({ myDid, didCfg, fromPhone, message, contact, cfg, runtime }) {
+    async function handleInbound({ myDid, didCfg, fromPhone, message, contact, lastMessage, cfg, runtime }) {
       const agentId    = didCfg.agent;
       const phone      = normalizePhone(fromPhone);
       const sessionKey = defaultSessionKey(myDid, phone, agentId);
-      const body       = buildAgentBody({ fromPhone: phone, message, contact, didCfg });
+      const body       = buildAgentBody({ fromPhone: phone, message, contact, didCfg, lastMessage });
 
       const ctx = {
         Body: body, BodyForAgent: body, SessionKey: sessionKey,
@@ -603,11 +629,14 @@ module.exports = {
             // Save language preference (feature-gated inside saveLanguagePref)
             await saveLanguagePref(fromPhone, enriched.contact?.preferred_language, did);
 
+            // Fetch previous last message BEFORE logging current (feature-gated inside fetchLastMessage)
+            const lastMsg = await fetchLastMessage(fromPhone, did);
+
             // Log inbound thread (feature-gated inside logThread)
             await logThread(fromPhone, did, didCfg.agent, 'inbound', finalMessage);
 
             const handler = _didHandlers.get(did);
-            if (handler) await handler({ fromPhone, message: finalMessage, contact: enriched.contact });
+            if (handler) await handler({ fromPhone, message: finalMessage, contact: enriched.contact, lastMessage: lastMsg });
           } catch (e) {
             logger?.error('[voipms] webhook processing error:', e.message);
           }
@@ -825,11 +854,12 @@ module.exports = {
           _didHandlers.set(myDid, async (data) => {
             await handleInbound({
               myDid, didCfg,
-              fromPhone: data.fromPhone,
-              message:   data.message,
-              contact:   data.contact,
-              cfg:       ctx.cfg,
-              runtime:   api.runtime,
+              fromPhone:   data.fromPhone,
+              message:     data.message,
+              contact:     data.contact,
+              lastMessage: data.lastMessage,
+              cfg:         ctx.cfg,
+              runtime:     api.runtime,
             });
           });
 
