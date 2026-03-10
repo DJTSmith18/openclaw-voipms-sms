@@ -72,56 +72,54 @@ echo -e "${CYAN}║${NC}  ${BOLD}voipms-sms Plugin Installer${NC}             ${
 echo -e "${CYAN}╚══════════════════════════════════════════╝${NC}"
 echo ""
 
-# ── Install or upgrade ────────────────────────────────────────────────────────
-if [ -d "$INSTALL_DIR/.git" ]; then
-  # Existing git install — upgrade via pull
-  step "Existing installation found at ${BOLD}${INSTALL_DIR}${NC}"
+# ── Detect existing installation ──────────────────────────────────────────────
+IS_UPGRADE=false
+CURRENT_VERSION="unknown"
 
+if [ -d "$INSTALL_DIR" ]; then
+  IS_UPGRADE=true
+  CURRENT_VERSION="$(node -p "require('${INSTALL_DIR}/openclaw.plugin.json').version" 2>/dev/null || echo 'unknown')"
+
+  if [ -d "$INSTALL_DIR/.git" ]; then
+    # Git-managed — pull latest
+    step "Existing installation found at ${BOLD}${INSTALL_DIR}${NC} (v${CURRENT_VERSION})"
+    step "Pulling latest from ${BOLD}${BRANCH}${NC}..."
+    cd "$INSTALL_DIR"
+    git fetch origin "$BRANCH" --quiet
+    git checkout "$BRANCH" --quiet 2>/dev/null || true
+    git reset --hard "origin/$BRANCH" --quiet
+  else
+    # Non-git directory — replace with git clone
+    step "Existing installation found at ${BOLD}${INSTALL_DIR}${NC} (v${CURRENT_VERSION}, non-git)"
+    step "Replacing with git-managed install..."
+
+    BACKUP_DIR="${INSTALL_DIR}.bak.$(date +%s)"
+    mv "$INSTALL_DIR" "$BACKUP_DIR"
+
+    git clone --branch "$BRANCH" --depth 1 --quiet "$REPO" "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
+
+    rm -rf "$BACKUP_DIR"
+    info "Old installation replaced"
+  fi
+else
+  # Fresh install
+  step "Installing to ${BOLD}${INSTALL_DIR}${NC}"
+  mkdir -p "$(dirname "$INSTALL_DIR")"
+  git clone --branch "$BRANCH" --depth 1 --quiet "$REPO" "$INSTALL_DIR"
   cd "$INSTALL_DIR"
-  CURRENT_VERSION="$(node -p "require('./openclaw.plugin.json').version" 2>/dev/null || echo 'unknown')"
-  step "Current version: ${BOLD}v${CURRENT_VERSION}${NC}"
+fi
 
-  step "Pulling latest from ${BOLD}${BRANCH}${NC}..."
-  git fetch origin "$BRANCH" --quiet
-  git checkout "$BRANCH" --quiet 2>/dev/null || true
-  git reset --hard "origin/$BRANCH" --quiet
+NEW_VERSION="$(node -p "require('./openclaw.plugin.json').version" 2>/dev/null || echo 'unknown')"
 
-  NEW_VERSION="$(node -p "require('./openclaw.plugin.json').version" 2>/dev/null || echo 'unknown')"
-
+if [ "$IS_UPGRADE" = true ]; then
   if [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
     info "Already up to date (v${NEW_VERSION})"
   else
     info "Upgraded: v${CURRENT_VERSION} → v${NEW_VERSION}"
   fi
-elif [ -d "$INSTALL_DIR" ]; then
-  # Directory exists but is not a git repo — replace with fresh clone
-  CURRENT_VERSION="$(node -p "require('${INSTALL_DIR}/openclaw.plugin.json').version" 2>/dev/null || echo 'unknown')"
-  step "Existing non-git installation found (v${CURRENT_VERSION}) at ${BOLD}${INSTALL_DIR}${NC}"
-  step "Converting to git-managed install..."
-
-  BACKUP_DIR="${INSTALL_DIR}.bak.$(date +%s)"
-  mv "$INSTALL_DIR" "$BACKUP_DIR"
-  info "Backed up existing install to ${BOLD}${BACKUP_DIR}${NC}"
-
-  git clone --branch "$BRANCH" --depth 1 --quiet "$REPO" "$INSTALL_DIR"
-  cd "$INSTALL_DIR"
-
-  NEW_VERSION="$(node -p "require('./openclaw.plugin.json').version" 2>/dev/null || echo 'unknown')"
-  info "Upgraded: v${CURRENT_VERSION} → v${NEW_VERSION} (now git-managed)"
-
-  # Clean up backup on success
-  rm -rf "$BACKUP_DIR"
-  info "Removed backup"
 else
-  # Fresh install
-  step "Installing to ${BOLD}${INSTALL_DIR}${NC}"
-
-  mkdir -p "$(dirname "$INSTALL_DIR")"
-  git clone --branch "$BRANCH" --depth 1 --quiet "$REPO" "$INSTALL_DIR"
-  cd "$INSTALL_DIR"
-
-  NEW_VERSION="$(node -p "require('./openclaw.plugin.json').version" 2>/dev/null || echo 'unknown')"
-  info "Cloned v${NEW_VERSION}"
+  info "Installed v${NEW_VERSION}"
 fi
 
 # ── Install dependencies ──────────────────────────────────────────────────────
@@ -148,22 +146,25 @@ info "Installation complete!"
 echo ""
 echo -e "  ${BOLD}Location:${NC}  ${INSTALL_DIR}"
 echo -e "  ${BOLD}Version:${NC}   v${NEW_VERSION}"
-echo ""
-echo -e "  ${BOLD}Next steps:${NC}"
-echo -e "  1. Add the plugin to your openclaw.json:"
-echo ""
-echo -e "     ${CYAN}\"plugins\": {"
-echo -e "       \"entries\": {"
-echo -e "         \"voipms-sms\": {"
-echo -e "           \"module\": \"${INSTALL_DIR}\","
-echo -e "           \"config\": {"
-echo -e "             \"dbPath\": \"/path/to/your/database.db\","
-echo -e "             \"dids\": {}"
-echo -e "           }"
-echo -e "         }"
-echo -e "       }"
-echo -e "     }${NC}"
-echo ""
-echo -e "  2. Configure DIDs with ${BOLD}./manage.sh${NC}"
-echo -e "  3. Set API credentials (apiUsername/apiPassword or env vars)"
+
+if [ "$IS_UPGRADE" = false ]; then
+  echo ""
+  echo -e "  ${BOLD}Next steps:${NC}"
+  echo -e "  1. Add the plugin to your openclaw.json:"
+  echo ""
+  echo -e "     ${CYAN}\"plugins\": {"
+  echo -e "       \"entries\": {"
+  echo -e "         \"voipms-sms\": {"
+  echo -e "           \"module\": \"${INSTALL_DIR}\","
+  echo -e "           \"config\": {"
+  echo -e "             \"dbPath\": \"/path/to/your/database.db\","
+  echo -e "             \"dids\": {}"
+  echo -e "           }"
+  echo -e "         }"
+  echo -e "       }"
+  echo -e "     }${NC}"
+  echo ""
+  echo -e "  2. Configure DIDs with ${BOLD}./manage.sh${NC}"
+  echo -e "  3. Set API credentials (apiUsername/apiPassword or env vars)"
+fi
 echo ""
