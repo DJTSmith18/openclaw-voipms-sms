@@ -4,6 +4,47 @@ const sqlite3 = require('sqlite3').verbose();
 const https   = require('https');
 const http    = require('http');
 
+// ── Task system integration (optional — graceful degradation if not installed) ──
+function httpGetJson(url, headers, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(url, { headers, timeout: timeoutMs }, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch { reject(new Error('Invalid JSON')); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+  });
+}
+
+function createTaskClient(apiConfig) {
+  const taskCfg = apiConfig?.plugins?.entries?.['task-system']?.config?.webUI;
+  if (!taskCfg || taskCfg.enabled === false) return null;
+  const port = taskCfg.port || 18790;
+  const token = taskCfg.authToken || '';
+  let available = null; // null=untested, true/false=tested
+
+  return {
+    async getPendingResponses(phone10) {
+      if (available === false) return [];
+      try {
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const result = await httpGetJson(
+          `http://127.0.0.1:${port}/dashboard/api/tasks/pending-responses?contact=${encodeURIComponent(phone10)}`,
+          headers, 3000
+        );
+        available = true;
+        return result?.tasks || [];
+      } catch {
+        if (available === null) available = false;
+        return [];
+      }
+    }
+  };
+}
+
 // ── Module-scope singletons (shared across multiple startAccount calls per DID) ──
 let _httpServer   = null;
 let _httpRefCount = 0;
@@ -55,6 +96,10 @@ module.exports = {
     const VOIPMS_PASS  = pluginCfg.apiPassword || process.env.VOIPMS_API_PASSWORD;
     const WEBHOOK_PORT = Number(pluginCfg.webhookPort) || Number(process.env.VOIPMS_WEBHOOK_PORT) || 8089;
     const TIMEZONE     = pluginCfg.timezone || 'America/New_York';
+
+    // ── Task system client (optional cross-plugin integration) ──
+    const taskClient = createTaskClient(api.config);
+    if (taskClient) api.logger.info('[voipms] task-system detected — pending-response injection enabled');
 
     // Apply per-DID defaults
     for (const [did, cfg] of Object.entries(DIDS)) {
@@ -405,7 +450,7 @@ module.exports = {
     }
 
     // ── Build agent body (generic, config-driven) ─────────────────────────────
-    function buildAgentBody({ fromPhone, message, contact, didCfg, lastMessage }) {
+    function buildAgentBody({ fromPhone, message, contact, didCfg, lastMessage, pendingTasks }) {
       const cl  = didCfg.contactLookup;
       const who = contact?.name || fromPhone;
 
@@ -465,6 +510,19 @@ module.exports = {
         lines.push(`Last message (${sender}): ${lastMessage.message}`);
       }
 
+      // Pending task context (injected by task-system integration)
+      if (pendingTasks && pendingTasks.length > 0) {
+        lines.push('--- PENDING TASK CONTEXT ---');
+        for (const t of pendingTasks) {
+          const pri = { 1: 'URGENT', 2: 'HIGH', 3: 'NORMAL', 4: 'LOW' }[t.priority] || '';
+          lines.push(`Task #${t.id} [${t.status}] ${pri}: "${t.title}"`);
+          if (t.blocked_note) lines.push(`  Note: ${t.blocked_note}`);
+        }
+        lines.push('ACTION REQUIRED: This message may be a response to one of the above tasks.');
+        lines.push('If it is: 1) call task_comment with the response, 2) call task_status to update (→ in_progress or done), 3) clear awaiting_response_from in metadata.');
+        lines.push('---');
+      }
+
       lines.push(`Message: ${message}`);
       return lines.join('\n');
     }
@@ -474,7 +532,15 @@ module.exports = {
       const agentId    = didCfg.agent;
       const phone      = normalizePhone(fromPhone);
       const sessionKey = defaultSessionKey(myDid, phone, agentId);
-      const body       = buildAgentBody({ fromPhone: phone, message, contact, didCfg, lastMessage });
+
+      // Query task system for pending responses from this phone number
+      let pendingTasks = [];
+      if (taskClient) {
+        try { pendingTasks = await taskClient.getPendingResponses(phone); }
+        catch { /* non-fatal */ }
+      }
+
+      const body       = buildAgentBody({ fromPhone: phone, message, contact, didCfg, lastMessage, pendingTasks });
 
       const ctx = {
         Body: body, BodyForAgent: body, SessionKey: sessionKey,
