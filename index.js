@@ -7,16 +7,19 @@ const http    = require('http');
 // ── Task system integration (optional — graceful degradation if not installed) ──
 function httpGetJson(url, headers, timeoutMs) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (fn, val) => { if (!settled) { settled = true; fn(val); } };
     const req = http.get(url, { headers, timeout: timeoutMs }, (res) => {
+      res.on('error', () => {}); // prevent unhandled 'error' on response stream after destroy
       let data = '';
       res.on('data', chunk => { data += chunk; });
       res.on('end', () => {
-        if (res.statusCode < 200 || res.statusCode >= 300) return reject(new Error(`HTTP ${res.statusCode}`));
-        try { resolve(JSON.parse(data)); } catch { reject(new Error('Invalid JSON')); }
+        if (res.statusCode < 200 || res.statusCode >= 300) return settle(reject, new Error(`HTTP ${res.statusCode}`));
+        try { settle(resolve, JSON.parse(data)); } catch { settle(reject, new Error('Invalid JSON')); }
       });
     });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+    req.on('error', (e) => settle(reject, e));
+    req.on('timeout', () => { req.destroy(); settle(reject, new Error('Timeout')); });
   });
 }
 
@@ -99,8 +102,13 @@ module.exports = {
     const TIMEZONE     = pluginCfg.timezone || 'America/New_York';
 
     // ── Task system client (optional cross-plugin integration) ──
-    const taskClient = createTaskClient(api.config);
-    if (taskClient) api.logger.info('[voipms] task-system detected — pending-response injection enabled');
+    let taskClient = null;
+    try {
+      taskClient = createTaskClient(api.config);
+      if (taskClient) api.logger.info('[voipms] task-system detected — pending-response injection enabled');
+    } catch (e) {
+      api.logger.warn('[voipms] task-system client init failed (non-fatal):', e.message);
+    }
 
     // Apply per-DID defaults
     for (const [did, cfg] of Object.entries(DIDS)) {
