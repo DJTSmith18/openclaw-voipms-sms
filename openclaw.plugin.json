@@ -2,7 +2,7 @@
   "id": "voipms-sms",
   "name": "VoIP.ms SMS",
   "description": "SMS channel plugin for voip.ms — inbound/outbound SMS with per-DID routing, access control, contact enrichment, and feature toggles.",
-  "version": "2.1.4",
+  "version": "2.1.5",
   "kind": "channel",
   "configSchema": {
     "type": "object",

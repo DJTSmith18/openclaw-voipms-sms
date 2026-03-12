@@ -55,6 +55,9 @@ let _httpRefCount = 0;
 const _didHandlers    = new Map(); // did → async ({ fromPhone, message, contact }) => void
 const _dedupIds       = new Set(); // voip.ms SMS IDs already dispatched (prevents double-dispatch)
 const _processingLock = new Map(); // `${did}:${phone}` → Promise chain (serializes per-contact)
+let _db           = null;  // cached SQLite connection (survives re-register)
+let _taskClient   = null;  // cached task system client
+let _taskClientInit = false; // whether taskClient has been initialized
 
 // Serialize async work per contact — replicates Python HTTPServer single-thread behaviour.
 function withContactLock(key, fn) {
@@ -101,14 +104,17 @@ module.exports = {
     const WEBHOOK_PORT = Number(pluginCfg.webhookPort) || Number(process.env.VOIPMS_WEBHOOK_PORT) || 8089;
     const TIMEZONE     = pluginCfg.timezone || 'America/New_York';
 
-    // ── Task system client (optional cross-plugin integration) ──
-    let taskClient = null;
-    try {
-      taskClient = createTaskClient(api.config);
-      if (taskClient) api.logger.info('[voipms] task-system detected — pending-response injection enabled');
-    } catch (e) {
-      api.logger.warn('[voipms] task-system client init failed (non-fatal):', e.message);
+    // ── Task system client (optional cross-plugin integration, cached) ──
+    if (!_taskClientInit) {
+      try {
+        _taskClient = createTaskClient(api.config);
+        if (_taskClient) api.logger.info('[voipms] task-system detected — pending-response injection enabled');
+      } catch (e) {
+        api.logger.warn('[voipms] task-system client init failed (non-fatal):', e.message);
+      }
+      _taskClientInit = true;
     }
+    const taskClient = _taskClient;
 
     // Apply per-DID defaults
     for (const [did, cfg] of Object.entries(DIDS)) {
@@ -161,44 +167,47 @@ module.exports = {
       }
     }
 
-    // ── DB ──────────────────────────────────────────────────────────────────
-    const db = new sqlite3.Database(DB_PATH, (err) => {
-      if (err) { api.logger.error('[voipms] Cannot open DB:', err.message); return; }
-      db.run('PRAGMA journal_mode=WAL;');
-      db.run('PRAGMA busy_timeout=10000;');
-      db.run('PRAGMA foreign_keys=ON;');
+    // ── DB (cached — only open once) ───────────────────────────────────────
+    if (!_db) {
+      _db = new sqlite3.Database(DB_PATH, (err) => {
+        if (err) { api.logger.error('[voipms] Cannot open DB:', err.message); _db = null; return; }
+        _db.run('PRAGMA journal_mode=WAL;');
+        _db.run('PRAGMA busy_timeout=10000;');
+        _db.run('PRAGMA foreign_keys=ON;');
 
-      // Auto-create sms_threads if ANY DID has smsThreadLogging enabled
-      const anyThreadLogging = Object.values(DIDS).some(d => d.features.smsThreadLogging);
-      if (anyThreadLogging) {
-        db.run(`
-          CREATE TABLE IF NOT EXISTS sms_threads (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            phone_number TEXT NOT NULL,
-            did          TEXT NOT NULL,
-            agent        TEXT NOT NULL,
-            direction    TEXT NOT NULL,
-            message      TEXT NOT NULL,
-            context      TEXT,
-            created_at   TEXT DEFAULT (datetime('now'))
-          )
-        `);
-      }
+        // Auto-create sms_threads if ANY DID has smsThreadLogging enabled
+        const anyThreadLogging = Object.values(DIDS).some(d => d.features.smsThreadLogging);
+        if (anyThreadLogging) {
+          _db.run(`
+            CREATE TABLE IF NOT EXISTS sms_threads (
+              id           INTEGER PRIMARY KEY AUTOINCREMENT,
+              phone_number TEXT NOT NULL,
+              did          TEXT NOT NULL,
+              agent        TEXT NOT NULL,
+              direction    TEXT NOT NULL,
+              message      TEXT NOT NULL,
+              context      TEXT,
+              created_at   TEXT DEFAULT (datetime('now'))
+            )
+          `);
+        }
 
-      // Auto-create sms_language_preferences if ANY DID has languagePreferences enabled
-      const anyLangPrefs = Object.values(DIDS).some(d => d.features.languagePreferences);
-      if (anyLangPrefs) {
-        db.run(`
-          CREATE TABLE IF NOT EXISTS sms_language_preferences (
-            phone_number       TEXT PRIMARY KEY,
-            preferred_language TEXT NOT NULL,
-            updated_at         TEXT NOT NULL
-          )
-        `);
-      }
+        // Auto-create sms_language_preferences if ANY DID has languagePreferences enabled
+        const anyLangPrefs = Object.values(DIDS).some(d => d.features.languagePreferences);
+        if (anyLangPrefs) {
+          _db.run(`
+            CREATE TABLE IF NOT EXISTS sms_language_preferences (
+              phone_number       TEXT PRIMARY KEY,
+              preferred_language TEXT NOT NULL,
+              updated_at         TEXT NOT NULL
+            )
+          `);
+        }
 
-      api.logger.info('[voipms] DB ready:', DB_PATH);
-    });
+        api.logger.info('[voipms] DB ready:', DB_PATH);
+      });
+    }
+    const db = _db;
 
     const dbRun = (sql, params = []) =>
       new Promise((res, rej) => db.run(sql, params, function (err) { err ? rej(err) : res(this); }));
