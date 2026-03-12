@@ -599,12 +599,13 @@ module.exports = {
           return;
         }
 
-        logger?.info(`[voipms] incoming ${req.method} ${u.pathname}${u.search ? '?' + u.search.slice(0, 100) : ''}`);
+        logger?.info(`[voipms] incoming ${req.method} ${u.pathname} raw_query=${u.search || '(none)'} headers=${JSON.stringify({ ct: req.headers['content-type'], cl: req.headers['content-length'], ua: req.headers['user-agent'] })}`);
 
         // Parse SMS params — GET (voip.ms callback URL) or POST (JSON/form webhook)
         let to = '', from = '', message = '', smsId = '', dateStr = '';
 
         if (req.method !== 'POST') {
+          logger?.info(`[voipms] GET params: ${u.search || '(empty)'}`);
           to      = u.searchParams.get('to')      || '';
           from    = u.searchParams.get('from')    || '';
           message = u.searchParams.get('message') || '';
@@ -616,7 +617,7 @@ module.exports = {
             req.on('data', (c) => { buf += c; });
             req.on('end', () => resolve(buf));
           });
-          logger?.debug('[voipms] POST body:', body.slice(0, 500));
+          logger?.info('[voipms] POST raw body:', body.slice(0, 1000));
           let parsed = false;
           if (body.trim().startsWith('{')) {
             try {
