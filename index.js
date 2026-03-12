@@ -599,6 +599,8 @@ module.exports = {
           return;
         }
 
+        logger?.info(`[voipms] incoming ${req.method} ${u.pathname}${u.search ? '?' + u.search.slice(0, 100) : ''}`);
+
         // Parse SMS params — GET (voip.ms callback URL) or POST (JSON/form webhook)
         let to = '', from = '', message = '', smsId = '', dateStr = '';
 
@@ -646,17 +648,23 @@ module.exports = {
         const fromPhone = from.replace(/\D/g, '').slice(-10);
         const didCfg    = DIDS[did] || null;
 
-        logger?.debug(`[voipms] webhook: did=${did} from=${fromPhone} id=${smsId} handler=${_didHandlers.has(did)}`);
+        logger?.info(`[voipms] webhook parsed: did=${did} from=${fromPhone} id=${smsId} msg=${message.length}ch handler=${_didHandlers.has(did)} didCfg=${!!didCfg}`);
 
         // Respond immediately — voip.ms expects a fast 200 ack
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end('ok');
 
-        if (!didCfg || !_didHandlers.has(did) || !fromPhone || !message) return;
+        if (!didCfg || !_didHandlers.has(did) || !fromPhone || !message) {
+          if (!didCfg) logger?.warn(`[voipms] no config for DID ${did} — known DIDs: ${Object.keys(DIDS).join(', ')}`);
+          else if (!_didHandlers.has(did)) logger?.warn(`[voipms] no handler registered for DID ${did}`);
+          else if (!fromPhone) logger?.warn('[voipms] missing fromPhone — cannot process');
+          else if (!message) logger?.warn('[voipms] missing message — cannot process');
+          return;
+        }
 
         // Check inbound enabled
         if (!didCfg.inbound) {
-          logger?.debug(`[voipms] DID ${did} has inbound disabled — ignoring`);
+          logger?.warn(`[voipms] DID ${did} has inbound disabled — ignoring`);
           return;
         }
 
