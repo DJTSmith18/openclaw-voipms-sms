@@ -11,6 +11,7 @@ function httpGetJson(url, headers, timeoutMs) {
       let data = '';
       res.on('data', chunk => { data += chunk; });
       res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) return reject(new Error(`HTTP ${res.statusCode}`));
         try { resolve(JSON.parse(data)); } catch { reject(new Error('Invalid JSON')); }
       });
     });
@@ -516,7 +517,7 @@ module.exports = {
         for (const t of pendingTasks) {
           const pri = { 1: 'URGENT', 2: 'HIGH', 3: 'NORMAL', 4: 'LOW' }[t.priority] || '';
           lines.push(`Task #${t.id} [${t.status}] ${pri}: "${t.title}"`);
-          if (t.blocked_note) lines.push(`  Note: ${t.blocked_note}`);
+          if (t.note) lines.push(`  Note: ${t.note}`);
         }
         lines.push('ACTION REQUIRED: This message may be a response to one of the above tasks.');
         lines.push('If it is: 1) call task_comment with the response, 2) call task_status to update (→ in_progress or done), 3) clear awaiting_response_from in metadata.');
