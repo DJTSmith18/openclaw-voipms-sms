@@ -1,6 +1,6 @@
 {
   "name": "voipms-sms",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "VoIP.ms SMS channel plugin for OpenClaw — per-DID routing, access control, contact enrichment, and feature toggles",
   "main": "index.js",
   "openclaw": {
