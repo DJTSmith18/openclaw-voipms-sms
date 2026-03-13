@@ -781,7 +781,8 @@ module.exports = {
           },
           required: ['did'],
         },
-        execute: async (params, context) => {
+        execute: async (_toolCallId, args) => {
+          const params = (args || {});
           const did = normalizePhone(params.did);
           const didCfg = DIDS[did];
           if (!didCfg) return { error: `DID ${did} not configured (raw input: "${params.did}", known DIDs: ${Object.keys(DIDS).join(', ')})` };
@@ -851,7 +852,8 @@ module.exports = {
           },
           required: ['did', 'phone'],
         },
-        execute: async (params, context) => {
+        execute: async (_toolCallId, args) => {
+          const params = (args || {});
           const did = normalizePhone(params.did);
           const didCfg = DIDS[did];
           if (!didCfg) return { error: `DID ${did} not configured` };
