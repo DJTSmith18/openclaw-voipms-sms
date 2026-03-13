@@ -468,11 +468,11 @@ module.exports = {
     }
 
     // ── Build agent body (generic, config-driven) ─────────────────────────────
-    function buildAgentBody({ fromPhone, message, contact, didCfg, lastMessage, pendingTasks }) {
+    function buildAgentBody({ fromPhone, message, contact, did, didCfg, lastMessage, pendingTasks }) {
       const cl  = didCfg.contactLookup;
       const who = contact?.name || fromPhone;
 
-      const lines = [`SMS from ${who} (${fromPhone})`];
+      const lines = [`SMS from ${who} (${fromPhone}) on DID ${did} (${didCfg.label})`];
 
       if (contact && cl) {
         const meta = [];
@@ -541,6 +541,11 @@ module.exports = {
         lines.push('---');
       }
 
+      // Thread access hint
+      if (didCfg.features.agentThreadAccess) {
+        lines.push(`To check conversation history, call sms_read_threads with did="${did}" and phone="${fromPhone}".`);
+      }
+
       lines.push(`Message: ${message}`);
       return lines.join('\n');
     }
@@ -558,7 +563,7 @@ module.exports = {
         catch { /* non-fatal */ }
       }
 
-      const body       = buildAgentBody({ fromPhone: phone, message, contact, didCfg, lastMessage, pendingTasks });
+      const body       = buildAgentBody({ fromPhone: phone, message, contact, did: myDid, didCfg, lastMessage, pendingTasks });
 
       const ctx = {
         Body: body, BodyForAgent: body, SessionKey: sessionKey,
