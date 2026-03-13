@@ -784,7 +784,7 @@ module.exports = {
         execute: async (params, context) => {
           const did = normalizePhone(params.did);
           const didCfg = DIDS[did];
-          if (!didCfg) return { error: `DID ${did} not configured` };
+          if (!didCfg) return { error: `DID ${did} not configured (raw input: "${params.did}", known DIDs: ${Object.keys(DIDS).join(', ')})` };
           if (!didCfg.features.agentThreadAccess) return { error: `Thread access not enabled for DID ${did}` };
 
           const phone = params.phone ? normalizePhone(params.phone) : null;
