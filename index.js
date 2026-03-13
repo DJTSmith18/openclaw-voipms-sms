@@ -776,7 +776,7 @@ module.exports = {
             },
             limit: {
               type: 'number',
-              description: 'Maximum number of messages to return (default 20)',
+              description: 'Maximum number of messages to return (default 4, max 50)',
             },
           },
           required: ['did'],
@@ -789,7 +789,7 @@ module.exports = {
           if (!didCfg.features.agentThreadAccess) return { error: `Thread access not enabled for DID ${did}` };
 
           const phone = params.phone ? normalizePhone(params.phone) : null;
-          const limit = Math.min(Math.max(Number(params.limit) || 20, 1), 100);
+          const limit = Math.min(Math.max(Number(params.limit) || 4, 1), 50);
 
           try {
             let sql, sqlParams;
